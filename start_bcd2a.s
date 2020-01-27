@@ -33,7 +33,7 @@ _start:
     li    a0, 1               # stdout
     mv    a1, sp              # read output located on the stack
     li    a2, 65              # i.e. 64+1 characters
-    li    a7, 64              # exit syscall number
+    li    a7, 64              # write syscall number
     ecall                     # call write(2)
 
     li    a0, 0               # set exit status to zero
@@ -49,7 +49,7 @@ v_disabled_error:
     addi  a1, a1, %lo(err_msg)
     lui   a2, %hi(err_msg_size)     # load error message size
     addi  a2, a2, %lo(err_msg_size)
-    li    a7, 64              # exit syscall number
+    li    a7, 64              # write syscall number
     ecall                     # call write(2)
     li    a0, 1               # load immediate exit argument
     j     exit
