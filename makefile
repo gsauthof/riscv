@@ -32,6 +32,10 @@ bcd2asc: bcd2ascii.o main_bcd2a.o
 
 TEMP += bcd2asc main_bcd2a.o
 
+a2bcd: ascii2bcd.o main_a2bcd.o
+	$(CC) $(LDFLAGS) $^ -o $@
+
+TEMP += ascii2bcd.o main_a2bcd.o
 
 .PHONY: clean
 clean:
