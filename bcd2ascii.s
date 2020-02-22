@@ -44,9 +44,7 @@ bcd2ascii:
     # The final lookup table is then:
     # --> v8 = | 'f', ...,  'b', 'a', '9',  ... , '2', '1', '0' |
 
-    li t2, 0xf                # load immediate, mask lower nibble in each byte
-
-    # ## Main convert load, convert and store loop
+    # ## Main load, convert and store loop
 .Loop:                        # local symbol name because of .L prefix
     vsetvli a3, a2, e16, m8   # switch to 16 bit element size,
                               # 4 groups of 8 registers
@@ -72,7 +70,7 @@ bcd2ascii:
     vsetvli t4, a3, e8, m8    # switch to 8 bit element size,
                               # 4 groups of 8 registers
 
-    vand.vx v24, v24, t2      # and each element with 0x0f,
+    vand.vi v24, v24, 0xf     # and each element with 0x0f,
                               # i.e. zero-out the high nibbles
     # --> v24 = | ... 0n 00 0l 00 0j 00 0h 00 |
     vor.vv  v16, v16, v24     # or each element
