@@ -10,7 +10,7 @@
 # Nibbles (i.e. 4 bit byte halves) are sometimes denoted by variables
 # g, h, i, j, ...
 
-# 2020, Georg Sauthoff <mail@gms.tf>, GPLv3+
+# 2020, Georg Sauthoff <mail@gms.tf>, LGPLv3+
 
     .text                     # Start text section
     #.balign 4                # align section to 4 bytes - which is also the default?

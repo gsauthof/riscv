@@ -15,7 +15,7 @@
 # In contrast to that, an SSSE3 implementation with a similar number of
 # instructions only converts 8 input bytes per iteration. 
 
-# 2020, Georg Sauthoff <mail@gms.tf>, GPLv3+
+# 2020, Georg Sauthoff <mail@gms.tf>, LGPLv3+
 
     .text                     # Start text section
     .align 2                  # align 4 byte instructions by 2**2 bytes
