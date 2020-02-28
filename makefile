@@ -18,7 +18,7 @@ CFLAGS = $(CFLAGSW_GCC) $(CFLAGS0) $(CFLAGS1)
 
 
 .PHONY: all
-all: bcd2a bcd2asc a2bcd memchr memcmp
+all: bcd2a bcd2asc a2bcd memchr memcmp memrchr
 
 
 bcd2a: bcd2ascii.o start_bcd2a.o 
@@ -41,6 +41,11 @@ memchr: main_memchr.o memchr.o mempchr.o
 	$(CC) $(LDFLAGS) $^ -o $@
 
 TEMP += main_memchr.o memchr.o mempchr.o
+
+memrchr: main_memrchr.o memrchr.o
+	$(CC) $(LDFLAGS) $^ -o $@
+
+TEMP += main_memrchr.o memrchr.o
 
 memcmp: main_memcmp.o memcmp.o
 	$(CC) $(LDFLAGS) $^ -o $@

@@ -13,6 +13,8 @@ These example use RISC-V "V" vector instructions (version 0.8).
 - mempchr.s - similar to `memchr()`, but `mempchr()` returns the
   one-past-the-end pointer instead of `NULL`. This is more useful
   e.g.  in text scanning code.
+- memrchr.s - vector version of the well-known
+  [`memrchr()`](https://manpath.be/c8/3/memrchr) libc function
 - memcmp.s - vector version of the well-known
   [`memcmp()`](https://manpath.be/c8/3/memcmp) libc function
 
