@@ -28,7 +28,6 @@ memrchr:
     li a6, 256               # with vid, we can only index up to 256 elements
                              # i.e. a register group with more than
                              # 256 * 8 bits would overflow the index
-    mv a2, a3                # limit remaining size to vl
 .Loop2:
     # minu t0, a3, a6        # requires "B"itmanip extension
     mv t0, a3                # initialize t0 with current vl
@@ -60,11 +59,11 @@ memrchr:
 
     addi a5, a5, 1           # add immediate to skip over the current maximum
     add a0, a0, a5           # increment src
-    sub a2, a2, a5           # decrement n
+    sub a3, a3, a5           # decrement current vl
 
     vslidedown.vx v8, v8, a5 # move out the lowest already visited elements
 
-    vsetvli a3, a2, e8, m8   # update config
+    vsetvli a3, a3, e8, m8   # update config
     vmseq.vx v0, v8, a1      # set mask bit for each element equal to scalar
     vfirst.m a4, v0          # move index of first set mask bit into register
     bgez a4, .Loop2          # branch if greater-than-or-equal-to-zero
