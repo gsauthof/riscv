@@ -17,6 +17,10 @@ These example use RISC-V "V" vector instructions (version 0.8).
   [`memrchr()`](https://manpath.be/c8/3/memrchr) libc function
 - memcmp.s - vector version of the well-known
   [`memcmp()`](https://manpath.be/c8/3/memcmp) libc function
+- rawmemchr.s - vector version of the well-known
+  [`rawmemchr()`](https://manpath.be/c8/3/rawmemchr) glibc function
+- strlen.s, strlen_small.s - vector versions of the well-known
+  [`strlen()`](https://manpath.be/c8/3/strlen) libc function
 
 ### See Also
 
