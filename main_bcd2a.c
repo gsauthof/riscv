@@ -1,6 +1,6 @@
 #include <stddef.h>
 
-void bcd2ascii(void* dst, const void* src, size_t n);
+void *bcd2ascii(void* dst, const void* src, size_t n);
 
 static const unsigned char inp[] = {
     0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,

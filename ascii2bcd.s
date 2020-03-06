@@ -1,8 +1,9 @@
-# void ascii2bcd(void* dst, const void* src, size_t n);
+# void *ascii2bcd(void* dst, const void* src, size_t n);
 #
 # a0 = dst, a1 = src, a2 = n
 #
-# n - size of src in bytes, multiple of 2
+#            n: size of src in bytes, multiple of 2
+# return value: dst + n/2
 
 # Regarding the comments:
 # Register content is written right-to-left, starting with the
