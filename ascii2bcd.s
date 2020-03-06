@@ -5,6 +5,14 @@
 #            n: size of src in bytes, multiple of 2
 # return value: dst + n/2
 
+# Alternative declaration:
+#
+# struct Void_Pair { void *fst; void *snd; };
+# typedef struct Void_Pair Void_Pair;
+# Void_Pair ascii2bcd(void* dst, const void* src, size_t n);
+#
+# return value: (Void_Pair){dst + n/2, src + n}
+
 # Regarding the comments:
 # Register content is written right-to-left, starting with the
 # least-significant element - enclosed by | |.
