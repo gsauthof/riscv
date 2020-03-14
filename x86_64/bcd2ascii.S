@@ -12,6 +12,9 @@
 
     #define BCD2ASCII_LOOP_BYTES 32
 #endif
+#ifndef BCD2ASCII_SSE4_1
+    #define BCD2ASCII_SSE4_1 1
+#endif
 
 ## We only need to zero the upper lanes if other libraries execute
 ## non-VEX SIMD instructions. Apparently, as of 2020, e.g. Fedora 31, glibc
@@ -63,12 +66,17 @@ bcd2ascii:
   #endif
 #else
     mov   r8, 0x3736353433323130   ## '7', '6', ..., '0'
-    vmovq xmm8, r8         ## move quad-word (64 bit) into low half of xmm
     mov   r9, 0x6665646362613938   ## 'f', 'e', ..., '8'
-    vmovq xmm9, r9         ## move quad-word (64 bit) into low half of xmm
-    ## unpack (interleave) low quad-words (64 bit) into double-quad-words (128 bit)
-    ## i.e. ymm10 = low(ymm9)low(ymm8)
-    vpunpcklqdq xmm10, xmm8, xmm9  ## i.e. lower 128 bit contain the table
+    vmovq xmm8, r8         ## move quad-word (64 bit) into low half of xmm
+    #if BCD2ASCII_SSE4_1
+        ## insert general-purpose register quad-word (64 bit) with offset 1
+        vpinsrq xmm10, xmm8, r9, 1  ## into xmm10 and use other half of xmm8
+    #else
+        vmovq xmm9, r9         ## move quad-word (64 bit) into low half of xmm
+        ## unpack (interleave) low quad-words (64 bit) into double-quad-words (128 bit)
+        ## i.e. ymm10 = low(ymm9)low(ymm8)
+        vpunpcklqdq xmm10, xmm8, xmm9  ## i.e. lower 128 bit contain the table
+    #endif
   #if BCD2ASCII_WIDTH != 128
     ## we need to copy it to the upper 128 bit, since shuffle uses
     ## a separate table for each 128 bit half
