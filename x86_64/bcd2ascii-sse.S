@@ -1,4 +1,13 @@
-## bcd2ascii - AVX version
+## bcd2ascii - SSE (or rather SSSE3) version
+##
+## Main differences to the AVX version:
+##
+## - SSE registers are just 128 bit wide
+## - most memory operands must be aligned
+## - there is no VEX encoding, i.e. SIMD instructions lose the v prefix
+## - most instructions have 2 vector operands, i.e require additional moves
+##
+## Q: How disable AVX support while assembling? A: -Wa,-march=+noavx
 ##
 ## 2020, Georg Sauthoff <mail@gms.tf>, LGPLv3+
 
@@ -9,22 +18,13 @@
 
 #ifndef BCD2ASCII_LOOP_BYTES
 
-    ## loop in increments of up to 32 source bytes
+    ## loop in increments of up to 16 source bytes
 
-    #define BCD2ASCII_LOOP_BYTES 32
+    #define BCD2ASCII_LOOP_BYTES 16
 #endif
+
 #ifndef BCD2ASCII_SSE4_1
     #define BCD2ASCII_SSE4_1 1
-#endif
-
-## We only need to zero the upper lanes if other libraries execute
-## non-VEX SIMD instructions. Apparently, as of 2020, e.g. Fedora 31, glibc
-## and others don't execute non-VEX legacy SIMD instructions, anymore.
-
-#if BCD2ASCII_ZEROUPPER
-    #define vzeroupper vzeroupper
-#else
-    #define vzeroupper
 #endif
 
     .text
@@ -60,101 +60,37 @@ bcd2ascii:
   ## Yeah, loading the table from memory is cheaper than constructing it
   ## by issuing a bunch of instructions.
 
-  #if BCD2ASCII_WIDTH != 128
-    vmovdqa ymm10, [.Lookup_table]
-  #else
-    vmovdqa xmm10, [.Lookup_table]
-  #endif
+  movdqa xmm10, [.Lookup_table]
 #else
     mov   r8, 0x3736353433323130   ## '7', '6', ..., '0'
     mov   r9, 0x6665646362613938   ## 'f', 'e', ..., '8'
-    vmovq xmm8, r8         ## move quad-word (64 bit) into low half of xmm
+    movq xmm10, r8         ## move quad-word (64 bit) into low half of xmm
     #if BCD2ASCII_SSE4_1
-        ## of course, AVX always supports this instruction
         ## insert general-purpose register quad-word (64 bit) with offset 1
-        vpinsrq xmm10, xmm8, r9, 1  ## into xmm10 and use other half of xmm8
+        pinsrq xmm10, r9, 1  ## into xmm10 and use other half of xmm8
     #else
-        vmovq xmm9, r9         ## move quad-word (64 bit) into low half of xmm
+        movq xmm9, r9         ## move quad-word (64 bit) into low half of xmm
         ## unpack (interleave) low quad-words (64 bit) into double-quad-words (128 bit)
         ## i.e. ymm10 = low(ymm9)low(ymm8)
-        vpunpcklqdq xmm10, xmm8, xmm9  ## i.e. lower 128 bit contain the table
+        punpcklqdq xmm10, xmm9  ## i.e. lower 128 bit contain the table
     #endif
-  #if BCD2ASCII_WIDTH != 128
-    ## we need to copy it to the upper 128 bit, since shuffle uses
-    ## a separate table for each 128 bit half
-    vinserti128 ymm10, ymm10, xmm10, 1
-  #endif // BCD2ASCII_WIDTH != 128
 #endif // BCD2ASCII_NO_STATIC
 
     ## ## prepare low-nibble mask
 
 #if ! BCD2ASCII_NO_STATIC
 
-  ## Yes, loading the mask from memory is cheaper than constructing with
-  ## three instructions.
+    ## Yes, loading the mask from memory is cheaper than constructing with
+    ## three instructions.
 
-  #if BCD2ASCII_WIDTH != 128
-    vmovdqa ymm4, [.Low_nibble_mask]
-  #else
-    vmovdqa xmm4, [.Low_nibble_mask]
-  #endif
+    movdqa xmm4, [.Low_nibble_mask]
 #else
     mov rcx, 0x0f0f0f0f
-    ## with AVX512VL/VW, vpbroadcastb also supports broadcasting a byte
-    ## from a general purpose register:
-    ## vpbroadcastb ymm4, rcx # set each element to 0xf, i.e. mask low nibble
-    ## alternatively:
-    vmovd xmm4, rcx         ## move double-word (32 bit)
-    #vpbroadcastb ymm4, xmm4 ## broadcast lowest xmm byte to all ymm bytes
-    vpbroadcastd ymm4, xmm4 ## broadcast lowest xmm double-word to all elems
+    movd xmm4, rcx         ## move double-word (32 bit)
+    ## shuffle double-word according to mask in 3rd operand (2 bits per element)
+    pshufd xmm4, xmm4, 0
 #endif // BCD2ASCII_NO_STATIC
 
-#if BCD2ASCII_LOOP_BYTES >= 32
-
-    add rsi, 32
-    cmp rsi, rdx
-    jnbe .Lskip32
-
-#if BCD2ASCII_ALIGN_LOOP
-    ## Align jump target to 16 bytes as recommended by Intel
-    .balign 16
-#endif
-.Loop0:
-    vmovdqu ymm0, [rsi-32]
-    add   rsi, 32          ## increment src
-
-    vpsrlw ymm1, ymm0, 4   ## shift-right-logical each 16 bit word element
-
-    ## interleave/unpack each byte pair of the low 64 bit half
-    ## into 16 bit words of a full 128 bit lane, for each 128 bit lane
-    vpunpcklbw ymm2, ymm1, ymm0
-    ## interleave/unpack byte pairs of the high 64 bit half into 16 bit words,
-    ## for each 128 bit lane
-    vpunpckhbw ymm3, ymm1, ymm0
-
-    vpand ymm2, ymm2, ymm4 ## bit-and, i.e. mask with 0x0f0f...0f
-    vpand ymm3, ymm3, ymm4 ## bit-and, i.e. mask with 0x0f0f...0f
-
-    ## ymm5 = concat(xmm3, xmm2)
-    vinserti128 ymm5, ymm2, xmm3, 1
-    ## ymm6 = concat(hilane(ymm3), hilane(ymm2))
-    ## i.e. permute 2 128 bit integer values
-    vperm2i128 ymm6, ymm2, ymm3, 0x31
-
-    ## lookup each byte in table ymm10 using indices in ymm5,
-    ## for each 128 bit lane
-    vpshufb ymm5, ymm10, ymm5
-    vpshufb ymm6, ymm10, ymm6
-
-    vmovdqu [rdi], ymm5
-    vmovdqu [rdi+32], ymm6
-    add rdi, 64            ## increment dst
-
-    cmp rsi, rdx           ## compare src with end
-    jbe .Loop0             ## branch if below-or-equal
-.Lskip32:
-    sub rsi, 32
-#endif // BCD2ASCII_LOOP_BYTES >= 32
 
 #if BCD2ASCII_LOOP_BYTES >= 16
 
@@ -168,58 +104,31 @@ bcd2ascii:
 #endif
 .Loop1:
 
-    /* There are basically 2 ways to deal with 16 source bytes:
-       - low/high unpack them in just one 128 bit lane
-       - do a 16 bit wideining load into a full 2 lane register (i.e. 256 bit)
-       */
-
-
-#if BCD2ASCII_UNPACK16
-    /* this branch is slower */
-
-    vmovdqu xmm0, [rsi-16]
+    movdqu xmm0, [rsi-16]
     add   rsi, 16          ## increment src
 
-    vpsrlw xmm1, xmm0, 4   ## shift-right-logical each 16 bit word element
+    movdqa xmm1, xmm0
+    psrlw xmm1, 4   ## shift-right-logical each 16 bit word element
+    movdqa xmm2, xmm1
 
     ## interleave/unpack each byte pair in the low part into 16 bit words
-    vpunpcklbw xmm2, xmm1, xmm0
+    punpcklbw xmm1, xmm0
 
-    vpunpckhbw xmm3, xmm1, xmm0
+    punpckhbw xmm2, xmm0
 
-    vpand xmm2, xmm2, xmm4 ## bit-and, i.e. mask with 0x0f0f...0f
-    vpand xmm3, xmm3, xmm4 ## bit-and, i.e. mask with 0x0f0f...0f
+    pand xmm1, xmm4        ## bit-and, i.e. mask with 0x0f0f...0f
+    pand xmm2, xmm4        ## bit-and, i.e. mask with 0x0f0f...0f
 
-    ## lookup each byte in table xmm10 using indices in xmm3
-    vpshufb xmm2, xmm10, xmm2
-    vpshufb xmm3, xmm10, xmm3
+    movdqa xmm5, xmm10
+    movdqa xmm6, xmm10
+    ## lookup each byte in table xmm5 using indices in xmm1
+    pshufb xmm5, xmm1
+    pshufb xmm6, xmm2
 
-    vmovdqu [rdi], xmm2    ## move double-quad-word (128 bit) to dst
-    vmovdqu [rdi+16], xmm3    ## move double-quad-word (128 bit) to dst
+    movdqu [rdi], xmm5     ## move double-quad-word (128 bit) to dst
+    movdqu [rdi+16], xmm6  ## move double-quad-word (128 bit) to dst
     add rdi, 32            ## increment dst
 
-#else // BCD2ASCII_UNPACK16
-    /* this branch is faster */
-
-    ## vpmovzxbw  ymm0, XMMWORD PTR [rsi] # XMMWORD PTR annotation is optional
-    vpmovzxbw  ymm0, [rsi-16] ## move and zero-extend 16 bytes into 16 16-bit words
-    add rsi, 16            ## increment src
-
-    vpsllw ymm2, ymm0, 8   ## shift-left-logical each 16-bit word by 8 bits
-    vpsrlw ymm3, ymm0, 4   ## shift-right-logical each 16-bit word by 8 bits
-    vpand  ymm5, ymm2, ymm4   ## bit-and, i.e. mask with 0x0f0f...0f
-
-    vpor   ymm6, ymm5, ymm3   ## bit-or
-
-    ## shuffle each each 128 bit half of ymm6 according to each lookup table
-    ## in ymm10
-    vpshufb ymm7, ymm10, ymm6
-
-    ## move 2 double-quad-words (i.e. the complete register) to unaligned dst
-    vmovdqu [rdi], ymm7
-    add rdi, 32            ## increment dst
-
-#endif // else: BCD2ASCII_UNPACK16
 
     cmp rsi, rdx           ## compare src with mid
     jbe .Loop1             ## branch if bfelow-or-equal
@@ -236,20 +145,22 @@ bcd2ascii:
     .balign 16
 #endif
 .Loop2:
-    vmovq xmm0, [rsi-8]      ## load quad-word (64 bit) into lower xmm half
+    movq xmm0, [rsi-8]     ## load quad-word (64 bit) into lower xmm half
     add   rsi, 8           ## increment src
 
-    vpsrlw xmm1, xmm0, 4   ## shift-right-logical each 16 bit word element
+    movdqa xmm1, xmm0
+    psrlw xmm1, 4          ## shift-right-logical each 16 bit word element
 
     ## interleave/unpack each byte pair in the low part into 16 bit words
-    vpunpcklbw xmm2, xmm1, xmm0
+    punpcklbw xmm1, xmm0
 
-    vpand xmm3, xmm2, xmm4 ## bit-and, i.e. mask with 0x0f0f...0f
+    pand xmm1, xmm4        ## bit-and, i.e. mask with 0x0f0f...0f
 
+    movdqa xmm2, xmm10
     ## lookup each byte in table xmm10 using indices in xmm3
-    vpshufb xmm5, xmm10, xmm3
+    pshufb xmm2, xmm1
 
-    vmovdqu [rdi], xmm5    ## move double-quad-word (128 bit) to dst
+    movdqu [rdi], xmm2     ## move double-quad-word (128 bit) to dst
     add rdi, 16            ## increment dst
 
     cmp rsi, rdx           ## compare src with end
@@ -268,7 +179,6 @@ bcd2ascii:
 .Lbegin0:
     ## avoid speed-penalty in case other functions that are executed next
     ## contain non-VEX SIMD instructions
-    vzeroupper
     ret
 .Lbegin1:
     ## mov r8b, [rsi] # would yield false dependency on register half
@@ -277,7 +187,6 @@ bcd2ascii:
     movzx r9, WORD PTR [r8 * 2 + .Lookup_bcd_byte]
     mov WORD PTR [rdi], r9w
 
-    vzeroupper
     ret
 
     ## slower alternative
@@ -294,7 +203,6 @@ bcd2ascii:
     mov WORD PTR [rdi], r9w
     mov WORD PTR [rdi+2], r11w
 
-    vzeroupper
     ret
 
     ## slower alternative
@@ -338,77 +246,68 @@ bcd2ascii:
 
 .Ldone:
 
-    vmovq xmm0, r8         ## move quad-word (64 bit) into lower xmm half
+    movq xmm0, r8          ## move quad-word (64 bit) into lower xmm half
 
-    vpsrlw xmm1, xmm0, 4   ## shift-right-logical each 16 bit word element
+    movdqa xmm1, xmm0
+    psrlw xmm1, 4          ## shift-right-logical each 16 bit word element
 
     ## interleave/unpack each byte pair in the low part into 16 bit words
-    vpunpcklbw xmm2, xmm1, xmm0
+    punpcklbw xmm1, xmm0
 
-    vpand xmm3, xmm2, xmm4 ## bit-and, i.e. mask with 0x0f0f...0f
+    pand xmm1, xmm4        ## bit-and, i.e. mask with 0x0f0f...0f
 
-    ## lookup each byte in table xmm10 using indices in xmm3
-    vpshufb xmm5, xmm10, xmm3
+    movdqa xmm5, xmm10
+    ## lookup each byte in table xmm5 using indices in xmm3
+    pshufb xmm5, xmm1
 
 
     jmp [r11 * 8 + .Ljump_table1]
 
 .Lend1:
-    vmovd r8, xmm5         ## move low double-word (32 bit), we can't move less
+    movd r8, xmm5          ## move low double-word (32 bit), we can't move less
     mov   [rdi], r8w       ## only move the lower word (16 bit)
-    vzeroupper
     ret
 .Lend2:
     vmovd [rdi], xmm5
-    vzeroupper
     ret
 .Lend3:
-    vmovq r8, xmm5         ## move low quad-word (64 bit)
+    movq r8, xmm5          ## move low quad-word (64 bit)
     mov   [rdi], r8d
     shr r8, 32
     mov   [rdi+4], r8w
-    vzeroupper
     ret
 .Lend4:
-    vmovq [rdi], xmm5
-    vzeroupper
+    movq [rdi], xmm5
     ret
 .Lend5:
-    vmovq [rdi], xmm5
+    movq [rdi], xmm5
     ## move high 64 bit to low 64 bit
     ## (i.e. move packed single-precision floats high to low)
-    vmovhlps xmm6, xmm5, xmm5
-    vmovd r9, xmm6
+    movhlps xmm6, xmm5
+    movd r9, xmm6
     mov   [rdi+8], r9w
-    vzeroupper
     ret
 .Lend6:
-    vmovq [rdi], xmm5
-    vmovhlps xmm6, xmm5, xmm5
-    vmovd [rdi+8], xmm6
-    vzeroupper
+    movq [rdi], xmm5
+    movhlps xmm6, xmm5
+    movd [rdi+8], xmm6
     ret
 .Lend7:
-    vmovq [rdi], xmm5
-    vmovhlps xmm6, xmm5, xmm5
-    vmovq r9, xmm6
+    movq [rdi], xmm5
+    movhlps xmm6, xmm5
+    movq r9, xmm6
     mov   [rdi+8], r9d
     shr r9, 32
     mov   [rdi+12], r9w
-    vzeroupper
     ret
 
 
     .section .rodata
-    .balign 32
+    .balign 16
 .Lookup_table:
     .quad 0x3736353433323130   ## '7', '6', ..., '0'
     .quad 0x6665646362613938   ## 'f', 'e', ..., '8'
-    .quad 0x3736353433323130   ## '7', '6', ..., '0'
-    .quad 0x6665646362613938   ## 'f', 'e', ..., '8'
 .Low_nibble_mask:
-    .quad 0x0f0f0f0f0f0f0f0f
-    .quad 0x0f0f0f0f0f0f0f0f
     .quad 0x0f0f0f0f0f0f0f0f
     .quad 0x0f0f0f0f0f0f0f0f
 .Ljump_table0:
